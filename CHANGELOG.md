@@ -1,6 +1,6 @@
 # Changelog
 
-## ircinch-identify 1.7.1 (unreleased)
+## ircinch-identify 1.7.1 (2026-11-23)
 
 - Forked `cinch-identify` as `ircinch-identify`. The gem requires IRCinch 2.4.6 or later and Ruby 3.3 or later. Load it with `require "cinch/plugins/identify"` and register `Cinch::Plugins::Identify`.
 - Fixed the `:identified` event for custom NickServ targets in `nick@host` form. The plugin now uses the same nickname for the login command and for matching the reply.
