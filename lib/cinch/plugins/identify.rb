@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+# frozen_string_literal: true
+
 require "openssl"
 
 module Cinch
@@ -6,8 +7,13 @@ module Cinch
     class Identify
       include Cinch::Plugin
 
+      QUAKENET_SERVICE = "Q@CServe.quakenet.org"
+      QUAKENET_CHALLENGE_TYPES = %i[secure_quakenet challengeauth].freeze
+      QUAKENET_TYPES = [:quakenet, *QUAKENET_CHALLENGE_TYPES].freeze
+      CHALLENGE_PATTERN = /^CHALLENGE (.+?) .+$/
+
       listen_to :connect, method: :identify
-      def identify(m)
+      def identify(_message)
         case config[:type]
         when :quakenet
           debug "Identifying with Q"
@@ -32,85 +38,87 @@ module Cinch
         end
       end
 
-      match(/^You are successfully identified as/,           use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
-      match(/^You are now identified for/,                   use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
+      match(/^You are successfully identified as/, use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
+      match(/^You are now identified for/, use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
       match(/^Password accepted - you are now recognized\./, use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
-      match(/^Hasło przyjęte - jesteś zidentyfikowany/,      use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
+      match(/^Hasło przyjęte - jesteś zidentyfikowany/, use_prefix: false, use_suffix: false, react_on: :private, method: :identified_nickserv)
       def identified_nickserv(m)
-        service_name = config[:service_name] || "nickserv"
-        if m.user == User(service_name) && config[:type] == :nickserv
-          debug "Identified with NickServ"
-          @bot.handlers.dispatch :identified, m
-        end
+        return unless config[:type] == :nickserv && m.user == User(nickserv_nick)
+
+        debug "Identified with NickServ"
+        @bot.handlers.dispatch(:identified, m)
       end
 
-      match(/^CHALLENGE (.+?) (.+)$/, use_prefix: false, use_suffix: false, react_on: :notice, method: :challengeauth)
-      def challengeauth(m)
-        return unless m.user && m.user.nick == "Q"
-        return unless [:secure_quakenet, :challengeauth].include?(config[:type])
+      match(CHALLENGE_PATTERN, use_prefix: false, use_suffix: false, react_on: :notice, method: :challengeauth)
+      def challengeauth(m, challenge = nil)
+        return unless QUAKENET_CHALLENGE_TYPES.include?(config[:type]) && m.user&.nick == "Q"
 
-        if match = m.message.match(/^CHALLENGE (.+?) (.+)$/)
-          challenge = match[1]
-          @bot.debug "Received challenge '#{challenge}'"
+        challenge ||= m.message[CHALLENGE_PATTERN, 1]
+        return unless challenge
 
-          username = config[:username].irc_downcase(:rfc1459)
-          password = config[:password][0,10]
-
-          key = OpenSSL::Digest::SHA256.hexdigest(username + ":" + OpenSSL::Digest::SHA256.hexdigest(password))
-          response = OpenSSL::HMAC.hexdigest("SHA256", key, challenge)
-          User("Q@CServe.quakenet.org").send("CHALLENGEAUTH #{username} #{response} HMAC-SHA-256")
-        end
+        @bot.debug "Received challenge '#{challenge}'"
+        username = config[:username].irc_downcase(:rfc1459)
+        password_hash = OpenSSL::Digest::SHA256.hexdigest(config[:password][0, 10])
+        key = OpenSSL::Digest::SHA256.hexdigest("#{username}:#{password_hash}")
+        response = OpenSSL::HMAC.hexdigest("SHA256", key, challenge)
+        User(QUAKENET_SERVICE).send("CHALLENGEAUTH #{username} #{response} HMAC-SHA-256")
       end
 
       match(/^You are now logged in as/, use_prefix: false, use_suffix: false, react_on: :notice, method: :identified_quakenet)
       def identified_quakenet(m)
-        if m.user == User("q") && [:quakenet, :secure_quakenet, :challengeauth].include?(config[:type])
-          debug "Identified with Q"
-          @bot.handlers.dispatch(:identified, m)
-        end
+        return unless QUAKENET_TYPES.include?(config[:type]) && m.user == User("q")
+
+        debug "Identified with Q"
+        @bot.handlers.dispatch(:identified, m)
       end
 
       match(/^You are now logged in as/, use_prefix: false, use_suffix: false, react_on: :notice, method: :identified_userserv)
       def identified_userserv(m)
-        service_name = config[:service_name] || "UserServ"
-        service_name = service_name.split("@").first
-        if m.user == User(service_name) && config[:type] == :userserv
-          debug "Identified with UserServ"
-          @bot.handlers.dispatch :identified, m
-        end
+        return unless config[:type] == :userserv && m.user == User(userserv_target.split("@", 2).first)
+
+        debug "Identified with UserServ"
+        @bot.handlers.dispatch(:identified, m)
       end
 
       private
+
       def identify_dalnet
-        User("Nickserv@services.dal.net").send("identify %s" % [config[:password]])
+        User("Nickserv@services.dal.net").send("identify #{config[:password]}")
       end
 
       def identify_quakenet
-        User("Q@CServe.quakenet.org").send("auth %s %s" % [config[:username], config[:password]])
+        User(QUAKENET_SERVICE).send("auth #{config[:username]} #{config[:password]}")
       end
 
       def identify_secure_quakenet
-        User("Q@CServe.quakenet.org").send("CHALLENGE")
+        User(QUAKENET_SERVICE).send(:CHALLENGE)
       end
 
       def identify_nickserv
-        service_name = config[:service_name] || "nickserv"
-        service_name = service_name.split("@").first
-        if config[:username]
-          cmd = "identify %s %s" % [config[:username], config[:password]]
+        username = config[:username]
+        password = config[:password]
+        command = if username
+          "identify #{username} #{password}"
         else
-          cmd = "identify %s" % [config[:password]]
+          "identify #{password}"
         end
-        User(service_name).send(cmd)
+        User(nickserv_nick).send(command)
       end
 
       def identify_kreynet
-        User("K!k@krey.net").send("LOGIN %s %s" % [config[:username], config[:password]])
+        User("K!k@krey.net").send("LOGIN #{config[:username]} #{config[:password]}")
       end
 
       def identify_userserv
-        service_name = config[:service_name] || "UserServ"
-        User(service_name).send("LOGIN %s %s" % [config[:username], config[:password]])
+        User(userserv_target).send("LOGIN #{config[:username]} #{config[:password]}")
+      end
+
+      def nickserv_nick
+        (config[:service_name] || "nickserv").split("@", 2).first
+      end
+
+      def userserv_target
+        config[:service_name] || "UserServ"
       end
     end
   end
