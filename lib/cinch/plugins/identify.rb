@@ -61,7 +61,7 @@ module Cinch
         password_hash = OpenSSL::Digest::SHA256.hexdigest(config[:password][0, 10])
         key = OpenSSL::Digest::SHA256.hexdigest("#{username}:#{password_hash}")
         response = OpenSSL::HMAC.hexdigest("SHA256", key, challenge)
-        User(QUAKENET_SERVICE).send("CHALLENGEAUTH #{username} #{response} HMAC-SHA-256")
+        send_sensitive(QUAKENET_SERVICE, "CHALLENGEAUTH #{username} #{response} HMAC-SHA-256")
       end
 
       match(/^You are now logged in as/, use_prefix: false, use_suffix: false, react_on: :notice, method: :identified_quakenet)
@@ -82,12 +82,22 @@ module Cinch
 
       private
 
+      def send_sensitive(service, command)
+        target = User(service)
+        # Older IRCinch versions interpret a keyword hash as the positional NOTICE flag.
+        if target.method(:send).parameters.include?([:key, :sensitive])
+          target.send(command, sensitive: true)
+        else
+          target.send(command)
+        end
+      end
+
       def identify_dalnet
-        User("Nickserv@services.dal.net").send("identify #{config[:password]}")
+        send_sensitive("Nickserv@services.dal.net", "identify #{config[:password]}")
       end
 
       def identify_quakenet
-        User(QUAKENET_SERVICE).send("auth #{config[:username]} #{config[:password]}")
+        send_sensitive(QUAKENET_SERVICE, "auth #{config[:username]} #{config[:password]}")
       end
 
       def identify_secure_quakenet
@@ -102,15 +112,15 @@ module Cinch
         else
           "identify #{password}"
         end
-        User(nickserv_nick).send(command)
+        send_sensitive(nickserv_nick, command)
       end
 
       def identify_kreynet
-        User("K!k@krey.net").send("LOGIN #{config[:username]} #{config[:password]}")
+        send_sensitive("K!k@krey.net", "LOGIN #{config[:username]} #{config[:password]}")
       end
 
       def identify_userserv
-        User(userserv_target).send("LOGIN #{config[:username]} #{config[:password]}")
+        send_sensitive(userserv_target, "LOGIN #{config[:username]} #{config[:password]}")
       end
 
       def nickserv_nick

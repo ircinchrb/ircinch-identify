@@ -19,8 +19,13 @@ class IdentifyTest < Minitest::Test
     end
 
     @commands = []
+    @sensitive_commands = []
     commands = @commands
-    @bot.irc.define_singleton_method(:send) { |line| commands << line }
+    sensitive_commands = @sensitive_commands
+    @bot.irc.define_singleton_method(:send) do |line, sensitive: false|
+      commands << line
+      sensitive_commands << line if sensitive
+    end
     @bot.irc.setup
     @bot.irc.parse(":irc.example.test 001 bot :Welcome")
     @bot.sync(:user, "bot", true)
@@ -51,6 +56,11 @@ class IdentifyTest < Minitest::Test
       @options[:type] = type
       connect
       assert_equal [command], @commands, type.to_s
+      if %i[secure_quakenet challengeauth].include?(type)
+        assert_empty @sensitive_commands
+      else
+        assert_sensitive_command(command)
+      end
     end
   end
 
@@ -70,6 +80,7 @@ class IdentifyTest < Minitest::Test
     connect
 
     assert_equal ["PRIVMSG Services :identify test-password"], @commands
+    assert_sensitive_command(@commands.first)
 
     receive(":Services!service@irc.example.test PRIVMSG bot :You are now identified for account")
 
@@ -83,6 +94,7 @@ class IdentifyTest < Minitest::Test
     connect
 
     assert_equal ["PRIVMSG Accounts@irc.example.test :LOGIN account test-password"], @commands
+    assert_sensitive_command(@commands.first)
   end
 
   def test_secure_quakenet_responds_to_q_with_the_expected_hmac
@@ -96,15 +108,19 @@ class IdentifyTest < Minitest::Test
     %i[secure_quakenet challengeauth].each do |type|
       @options[:type] = type
       @commands.clear
+      @sensitive_commands.clear
       receive(challenge_notice)
 
       assert_equal [expected_command], @commands, type.to_s
+      assert_sensitive_command(expected_command)
     end
 
     @commands.clear
+    @sensitive_commands.clear
     @bot.plugins.fetch(0).challengeauth(Cinch::Message.new(challenge_notice, @bot))
 
     assert_equal [expected_command], @commands
+    assert_sensitive_command(expected_command)
   end
 
   def test_secure_quakenet_ignores_challenges_with_the_wrong_sender_or_message_format
@@ -198,11 +214,17 @@ class IdentifyTest < Minitest::Test
 
   def connect
     @commands.clear
+    @sensitive_commands.clear
     @bot.irc.setup
     receive(":irc.example.test 376 bot :End of MOTD")
   end
 
   def receive(line)
     @bot.irc.parse(line)
+  end
+
+  def assert_sensitive_command(command)
+    supports_redaction = Cinch::Target.instance_method(:send).parameters.include?([:key, :sensitive])
+    assert_equal(supports_redaction ? [command] : [], @sensitive_commands)
   end
 end

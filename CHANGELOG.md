@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Mark password-bearing login commands and QuakeNet `CHALLENGEAUTH` responses as sensitive so that IRCinch redacts them in outgoing and send-error logs. Authentication remains compatible with IRCinch 2.4.6, which can still log those commands.
+
 ## ircinch-identify 1.7.1 (2026-11-23)
 
 - Forked `cinch-identify` as `ircinch-identify`. The gem requires IRCinch 2.4.6 or later and Ruby 3.3 or later. Load it with `require "cinch/plugins/identify"` and register `Cinch::Plugins::Identify`.

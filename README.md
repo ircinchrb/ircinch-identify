@@ -84,9 +84,10 @@ UserServ, or QuakeNet mode. IRCinch handlers can listen with `on :identified`.
 
 ### Credential Logging
 
-IRCinch can write the service password to logs in `:nickserv`, `:userserv`,
-`:dalnet`, `:quakenet`, and `:kreynet` modes. TLS protects the connection. The
-logging behavior also applies to commands sent over TLS.
+With IRCinch versions that support `sensitive: true`, the plugin redacts
+commands containing passwords and QuakeNet `CHALLENGEAUTH` responses from
+outgoing and send-error logs. Older IRCinch versions can still log these
+commands, including on TLS connections.
 
 ### Libera.Chat and OFTC
 
